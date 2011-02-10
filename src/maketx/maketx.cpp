@@ -69,6 +69,7 @@ static std::string dataformatname = "";
 static std::string fileformatname = "";
 static float ingamma = 1.0f, outgamma = 1.0f;
 static bool verbose = false;
+static bool prman = false;
 static int nthreads = 0;
 static int tile[3] = { 64, 64, 1 };
 static std::string channellist;
@@ -94,6 +95,7 @@ static bool latl2envcubemode = false;
 
 // Options controlling file metadata or mipmap creation
 static float fov = 90;
+static float fovcot = 0.0f;
 static std::string wrap = "black";
 static std::string swrap;
 static std::string twrap;
@@ -137,15 +139,23 @@ getargs (int argc, char *argv[])
                   "-o %s", &outputfilename, "Output filename",
                   "-t %d", &nthreads, "Number of threads (default: #cores)",
                   "-u", &updatemode, "Update mode",
-                  "--format %s", &fileformatname, "Specify output format (default: guess from extension)",
+                  "--format %s", &fileformatname, "Specify output file format (default: guess from extension)",
                   "-d %s", &dataformatname, "Set the output data format to one of:\n"
                           "\t\t\tuint8, sint8, uint16, sint16, half, float",
                   "--tile %d %d", &tile[0], &tile[1], "Specify tile size",
+                  "--prman", &prman, "Use prman-safe options:\n"
+                          "\t\t\t * For 8-bit int data, use 64x64 tile size.\n"
+                          "\t\t\t * For 16-bit int data, use 64x32 tile size.\n"
+                          "\t\t\t * For float data (both full/half), use 32x32 tile size.\n"
+                          "\t\t\t * If uint16 data is requested, force sint16\n"
+                          "\t\t\t * Force a planar configuration\n"
+                          "\t\t\t * Embed 'PixarTextureFormat' metadata",
                   "--separate", &separate, "Use planarconfig separate (default: contiguous)",
                   "--ingamma %f", &ingamma, "Specify gamma of input files (default: 1)",
                   "--outgamma %f", &outgamma, "Specify gamma of output files (default: 1)",
                   "--opaquewidth %f", &opaquewidth, "Set z fudge factor for volume shadows",
                   "--fov %f", &fov, "Field of view for envcube/shadcube/twofish",
+                  "--fovcot %f", &fovcot, "Override the pixel aspect ratio correction factor. Default is width/height.",
                   "--wrap %s", &wrap, "Specify wrap mode (black, clamp, periodic, mirror)",
                   "--swrap %s", &swrap, "Specific s wrap mode separately",
                   "--twrap %s", &twrap, "Specific t wrap mode separately",
@@ -205,7 +215,43 @@ getargs (int argc, char *argv[])
         mipmapmode = true;
     if (doresize)
         noresize = false;
-
+    
+    // Do prman-specific munging
+    // These were all determined by running txmake and inspecting the output
+    if (prman) {
+        // Force planar image handling.
+        separate = true;
+        
+        // Force u16 -> s16
+        if (dataformatname == "uint16") {
+            dataformatname = "sint16";
+        }
+        
+        // 8-bit : 64x64
+        if (dataformatname == "uint8" ||
+            dataformatname == "int8" ||
+            dataformatname == "sint8") {
+            tile[0] = 64;
+            tile[1] = 64;
+        }
+        
+        // 16-bit : 64x32
+        if (dataformatname == "uint16" ||
+            dataformatname == "int16" ||
+            dataformatname == "sint16") {
+            tile[0] = 64;
+            tile[1] = 32;
+        }
+        
+        // Float: 32x32
+        if (dataformatname == "half" ||
+            dataformatname == "float" ||
+            dataformatname == "double") {
+            tile[0] = 32;
+            tile[1] = 32;
+        }
+    }
+    
     if (filenames.size() < 1) {
         std::cerr << "maketx ERROR: Must have at least one input filename specified.\n";
         ap.usage();
@@ -501,10 +547,17 @@ make_texturemap (const char *maptypename = "texture map")
         dstspec.attribute ("ImageDescription", desc);
     }
 
-    if (shadowmode)
+    if (shadowmode) {
         dstspec.attribute ("textureformat", "Shadow");
+        if(prman)
+            dstspec.attribute ("PixarTextureFormat", "Shadow");
+    }
     else
+    {
         dstspec.attribute ("textureformat", "Plain Texture");
+        if(prman)
+            dstspec.attribute ("PixarTextureFormat", "Plain Texture");
+    }
 
     if (Mcam != Imath::M44f(0.0f))
         dstspec.attribute ("worldtocamera", TypeDesc::TypeMatrix, &Mcam);
@@ -517,7 +570,12 @@ make_texturemap (const char *maptypename = "texture map")
                                 (twrap.size() ? twrap : wrap);
         dstspec.attribute ("wrapmodes", wrapmodes);
     }
-    dstspec.attribute ("fovcot", (float)srcspec.full_width / srcspec.full_height);
+    
+    if(fovcot == 0.0f) {
+        fovcot = static_cast<float>(srcspec.full_width) / 
+            static_cast<float>(srcspec.full_height);
+    }
+    dstspec.attribute ("fovcot", fovcot);
 
     if (separate)
         dstspec.attribute ("planarconfig", "separate");
@@ -631,6 +689,8 @@ write_mipmap (ImageBuf &img, const ImageSpec &outspec_template,
     }
 
     // Write out the image
+    if (verbose)
+        std::cout << "  Writing file: " << outputfilename << std::endl;
     bool ok = true;
     ok &= img.write (out);
     stat_writetime += writetimer();
