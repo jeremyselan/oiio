@@ -1,0 +1,2 @@
+oiiotool input_rgb_mattes.tif -o output_rgb_mattes.dpx
+
