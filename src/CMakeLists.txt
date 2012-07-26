@@ -76,6 +76,7 @@ include (externalpackages)
 include_directories(
     ${CMAKE_SOURCE_DIR}/include/
     ${CMAKE_BINARY_DIR}/include/
+    ${EIGEN_INCLUDE_DIR}
 )
 
 # Strict warnings

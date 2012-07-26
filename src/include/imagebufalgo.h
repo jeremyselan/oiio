@@ -31,10 +31,6 @@
 
 #ifndef OPENIMAGEIO_IMAGEBUFALGO_H
 #define OPENIMAGEIO_IMAGEBUFALGO_H
-#endif
-
-#ifndef EIGEN_YES_I_KNOW_SPARSE_MODULE_IS_NOT_STABLE_YET
-#define EIGEN_YES_I_KNOW_SPARSE_MODULE_IS_NOT_STABLE_YET
 
 #if defined(_MSC_VER)
 // Ignore warnings about DLL exported classes with member variables that are template classes.
@@ -46,9 +42,6 @@
 #include "imagebuf.h"
 #include "fmath.h"
 #include "color.h"
-#include <eigen3/Eigen/Sparse>
-#include <eigen3/Eigen/SparseCholesky>
-//#include <eigen3/unsupported/Eigen/SparseExtra>
 
 
 #ifndef __OPENCV_CORE_TYPES_H__
@@ -324,93 +317,6 @@ bool DLLPUBLIC seamlessCloning(ImageBuf &dst, const ImageBuf &src, const ImageBu
 
 /// Local illumination changes, can correct under-exposed region or reduce reflections
 bool DLLPUBLIC localIlluminationChange(ImageBuf &dst, const ImageBuf &src, const ImageBuf &mask);
-
-
-template<typename PXLTYPE>
-bool DLLPUBLIC pixelCmp(PXLTYPE *a, PXLTYPE *b, int channels);
-
-template<typename PXLTYPE>
-void DLLPUBLIC pixelSub(PXLTYPE *a, PXLTYPE *b, int channels);
-
-template <class T>
-class PoissonImageEditing
-{
-protected:
-    const ImageBuf &img;
-    const ImageBuf &maskImg;
-    ImageBuf &out;
-    float* mColor; //masking color
-    std::map<unsigned int, unsigned int> mapping;
-    
-    std::vector<Eigen::VectorXd> b;
-    std::vector<Eigen::VectorXd> x;
-    Eigen::SparseMatrix<double> A;
-    
-    //----------- subfunctions of solve() -------------//
-    ///Checks if mask(s) is(are) valid
-    bool virtual verifyMask();
-    
-    ///Builds Mapping. Common for all PIE algorithms
-    void buildMapping();
-    
-    //Get vector guiading the interpolation.
-    //This method decides about interpolation type
-    //Parameters: pixel, xpos, ypos, number of channels
-    void virtual getGuidanceVector(std::vector<T> &pel, int x, int y, int nchannels) = 0;
-    
-    ///Builds sparse linear system
-    //Common for all PIE algorithms.
-    void buildSparseLinearSystem();
-    
-    //Solves linear system and computes the output value for every pixel.
-    //Common for all PIE algorithms.
-    //Returns true on success.
-    bool computeOutputPixels();
-    //-------------------------------------------------//
-    
-    
-public:
-    PoissonImageEditing(ImageBuf &output, const ImageBuf &src, const ImageBuf &mask);
-    bool solve(); //computes the output image
-};
-    
-
-template <class T>
-class SmoothImageCompletion : public PoissonImageEditing<T>
-{
-private:
-    
-public:
-    SmoothImageCompletion(ImageBuf &output, const ImageBuf &src, const ImageBuf &mask);
-    void getGuidanceVector(std::vector<T> &pel, int x, int y, int nchannels);
-};
-
-
-template <class T>
-class SeamlessCloning : public PoissonImageEditing<T>
-{
-private:
-    const ImageBuf &src2;
-    bool isMixed; //defines whether mixed gradient is used for guidance
-public:
-    //masked part of src2 image will be cloned into src image
-    SeamlessCloning(ImageBuf &output, const ImageBuf &src, const ImageBuf &mask, const ImageBuf &src2, bool isMix = false);
-    void getGuidanceVector(std::vector<T> &pel, int x, int y, int nchannels);
-};
-
-
-template <class T>
-class LocalIlluminationChange : public PoissonImageEditing<T>
-{
-protected:
-    std::vector<float> averageGradient;
-    
-public:
-    LocalIlluminationChange(ImageBuf &output, const ImageBuf &src, const ImageBuf &mask);
-    bool solve();
-    void findAverageGradient();
-    void getGuidanceVector(std::vector<T> &pel, int x, int y, int nchannels);
-};
 
 
 };  // end namespace ImageBufAlgo
